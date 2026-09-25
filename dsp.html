@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>達發 PAM4 DSP 深度研究報告</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#EEF1F0; --panel:#E4E9E8; --ink:#17252E; --muted:#56646C; --rule:#C6CFD0;
+  --signal:#0B7A83; --signal-soft:rgba(11,122,131,.14); --warn:#9A6200; --warn-soft:rgba(154,98,0,.12);
+  --sans:"Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif;
+  --serif:"Noto Serif TC","Songti TC","PMingLiU",Georgia,serif;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --paper:#0E191E; --panel:#15242B; --ink:#E2E9EB; --muted:#94A3A9; --rule:#2A3B43;
+    --signal:#4CC2C9; --signal-soft:rgba(76,194,201,.14); --warn:#E0A640; --warn-soft:rgba(224,166,64,.13);
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#0E191E; --panel:#15242B; --ink:#E2E9EB; --muted:#94A3A9; --rule:#2A3B43;
+  --signal:#4CC2C9; --signal-soft:rgba(76,194,201,.14); --warn:#E0A640; --warn-soft:rgba(224,166,64,.13);
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:17px;line-height:1.85;-webkit-font-smoothing:antialiased}
+main{max-width:720px;margin:0 auto;padding:40px 22px 80px}
+h1,h2,h3{font-family:var(--serif);line-height:1.35;letter-spacing:.01em}
+h1{font-size:clamp(28px,6vw,40px);margin:0 0 10px}
+h2{font-size:24px;margin:64px 0 16px;padding-top:20px;border-top:2px solid var(--ink)}
+h3{font-size:19px;margin:32px 0 8px}
+p{margin:0 0 16px}
+.sub{color:var(--muted);font-size:15px;margin:0 0 28px}
+figure{margin:0}
+.eye{background:var(--panel);border-radius:6px;padding:14px 14px 8px}
+.eye svg{display:block;width:100%;height:auto}
+.eye figcaption{font-size:13.5px;color:var(--muted);padding:6px 2px 4px;line-height:1.6}
+.lede{font-size:19px;line-height:1.8;margin-top:28px}
+.summary{border-left:4px solid var(--signal);padding:4px 0 4px 18px;margin:24px 0}
+.summary p{margin-bottom:10px}
+.note{background:var(--warn-soft);border-left:4px solid var(--warn);padding:14px 16px;margin:20px 0;font-size:15.5px;line-height:1.75}
+.note strong{color:var(--warn)}
+.est{background:var(--signal-soft);padding:14px 16px;margin:20px 0;font-size:15.5px;line-height:1.75;border-radius:4px}
+.scroll{overflow-x:auto;margin:18px 0 22px;-webkit-overflow-scrolling:touch}
+table{border-collapse:collapse;width:100%;min-width:520px;font-size:15px;line-height:1.6}
+th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--rule);vertical-align:top}
+th{font-weight:700;border-bottom:2px solid var(--ink)}
+td.num{white-space:nowrap}
+tr.hl td{background:var(--signal-soft)}
+ol.timeline{list-style:none;padding:0;margin:18px 0;counter-reset:t}
+ol.timeline li{position:relative;padding:0 0 18px 30px;border-left:2px solid var(--rule);margin-left:8px}
+ol.timeline li:last-child{border-left-color:transparent}
+ol.timeline li::before{content:"";position:absolute;left:-7px;top:8px;width:12px;height:12px;border-radius:50%;background:var(--paper);border:2px solid var(--signal)}
+ol.timeline li.done::before{background:var(--signal)}
+ol.timeline b{display:block;font-size:16px}
+ol.timeline span{color:var(--muted);font-size:15px}
+ul{padding-left:1.2em;margin:0 0 16px}
+li{margin-bottom:8px}
+.chain{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:14px 0 20px;font-size:14.5px}
+.chain span{padding:5px 10px;border:1.5px solid var(--rule);border-radius:3px;background:var(--paper)}
+.chain span.dsp{border-color:var(--signal);background:var(--signal-soft);font-weight:700}
+.chain i{font-style:normal;color:var(--muted)}
+.sources li{font-size:14.5px;line-height:1.6;word-break:break-word}
+a{color:var(--signal);text-underline-offset:3px}
+a:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
+.disclaimer{margin-top:48px;font-size:13.5px;color:var(--muted);border-top:1px solid var(--rule);padding-top:14px}
+@media (max-width:480px){body{font-size:16px}main{padding:28px 18px 64px}h2{font-size:22px}}
+</style>
+</head>
+<body>
+<main>
+
+<h1>達發 PAM4 DSP 深度研究報告</h1>
+<p class="sub">研究日期：2026 年 9 月 24 日。關鍵字：PAM4 DSP、單通道 50G / 100G / 200G、TIA、800G / 1.6T 光模組、LPO / NPO / CPO</p>
+
+<figure class="eye">
+  <svg id="eye" viewBox="0 0 400 180" role="img" aria-label="PAM4 眼圖示意：四個電壓位準之間形成上中下三個眼"></svg>
+  <figcaption>PAM4 眼圖示意。訊號在四個電壓位準之間跳動，形成三個「眼」。光纖傳過來的眼越閉越小，DSP 的工作就是把它重新撐開、讀出正確的位元。</figcaption>
+</figure>
+
+<p class="lede">一句話結論：達發是已經在出貨的 PAM4 DSP 晶片供應商，把 DSP 和 TIA 賣給光模組廠，在 Marvell、Broadcom 之外扮演替代供應來源。400G 到 800G 的過渡期 DSP 正在缺貨，美國大廠傳出漲價 15–20%，這給了達發接外溢訂單、拉高議價空間的機會。但它的基數很小，即使 2027 年達標，全球市佔也大約只在百分之一到二的量級。</p>
+
+<h2>1. 核心摘要</h2>
+<div class="summary">
+<p>PAM4 DSP 是光模組裡最貴、最難做的電晶片，負責把失真的高速訊號修回來。全球市場由 Marvell 主導，Broadcom 次之，其餘廠商分食剩下的份額。</p>
+<p>達發是 IC 設計公司，在光通訊供應鏈中的角色是晶片供應商：把自己設計的 PAM4 DSP 與 TIA 賣給光模組廠，模組廠組裝成光模組後，再賣給雲端業者。它的打法是「DSP + TIA 綁售、主打低功耗」。單通道 50G 產品已在出貨，打進全球前十大模組廠與北美 CSP；單通道 100G（800G 模組）2026 年中開始量產；單通道 200G（1.6T）目前只有 SerDes IP，還沒有產品。</p>
+<p>公司指引光通訊營收 2026 年成長逾 4 倍、2027 年再成長逾 3 倍，但光通訊要到 2027 年才佔營收雙位數。</p>
+<p>產業上，本報告採用股癌 EP699（2026/09/23）的判斷：DSP 在 400G 到 800G 過渡期非常缺貨，美國主要 DSP 廠傳出漲價 15–20%，密切合作的大客戶漲幅較小，其他客戶全面調漲。1.6T DSP 則因 3 奈米產能不足，缺口延續到 2027 年下半年。這代表達發所在的 800G 戰場也有缺貨紅利，被漲價的模組廠有動機導入替代供應商。</p>
+</div>
+
+<h2>2. 背景與定義</h2>
+
+<h3>達發在供應鏈裡的位置</h3>
+<p>達發是聯發科集團旗下的 IC 設計公司，不做模組，也不做雷射等光元件。它在光通訊的角色和 Marvell、Broadcom 相同，都是賣電晶片給模組廠：</p>
+<div class="chain" aria-label="光通訊供應鏈">
+  <span class="dsp">達發、Marvell、Broadcom 等（DSP / TIA 晶片）</span><i>賣給</i><span>光模組廠（全球前十大等）</span><i>賣給</i><span>雲端業者 CSP</span>
+</div>
+<p>達發的直接客戶是全球前十大光模組廠，另有北美大型 CSP 的專案。CSP 雖然不直接向達發買晶片，但會參與驗證、指定規格，所以法說會常把 CSP 也列為客戶。</p>
+<p>光通訊只是達發的一條產品線。全公司營收約一半來自有線網通，包括光通訊、PON 寬頻、乙太網路晶片；另一半來自無線邊緣 AI，以藍牙耳機晶片為主。光通訊預計到 2027 年才會佔營收雙位數。</p>
+
+<h3>光模組裡有什麼</h3>
+<p>一顆可插拔光模組把交換器或 GPU 網卡送出的電訊號轉成光，送進光纖，再在另一端轉回電。發射端和接收端的元件鏈大致如下：</p>
+<div class="chain" aria-label="光模組訊號鏈">
+  <span>交換晶片 SerDes</span><i>電</i><span class="dsp">DSP</span><i>電</i><span>Driver</span><i>電</i><span>雷射 / 調變器</span><i>光</i><span>光纖</span><i>光</i><span>PD 光偵測器</span><i>電</i><span>TIA</span><i>電</i><span class="dsp">DSP</span>
+</div>
+<p>DSP 約佔光模組 BOM 的三成，Driver 與 TIA 合計約兩成，其餘是雷射、光學元件和組裝。DSP 同時也是模組裡最耗電的單一晶片：以 400G 模組為例，7 奈米 DSP 大約吃掉整顆模組一半的功耗。這兩點決定了 DSP 廠的競爭主軸就是「功耗」與「價格」。</p>
+
+<h3>PAM4 是什麼</h3>
+<p>傳統 NRZ 訊號只有兩個電壓位準，一個符號帶 1 位元。PAM4 用四個位準，一個符號帶 2 位元，同樣的符號速率可以傳兩倍資料。代價是四個位準擠在同樣的電壓範圍裡，彼此間距只剩三分之一，雜訊容忍度大幅下降，所以一定要有 DSP 來做修正。</p>
+
+<h3>「單通道 50G / 100G / 200G」怎麼對應模組速度</h3>
+<p>模組速度 = 單通道速度 × 通道數。這是理解達發產品世代最重要的換算：</p>
+<div class="scroll">
+<table>
+<thead><tr><th>單通道速度</th><th>常見模組</th><th>DSP 製程</th><th>市場階段（2026 年）</th><th>達發狀態</th></tr></thead>
+<tbody>
+<tr><td class="num">50G</td><td>400G（8 通道）</td><td>較成熟製程</td><td>成熟、仍大量出貨</td><td>量產出貨中，今年營收主力</td></tr>
+<tr class="hl"><td class="num">100G</td><td>400G（4 通道）、800G（8 通道）</td><td>7 / 5 奈米</td><td>出貨主力，缺貨、傳出漲價 15–20%</td><td>2026 年中起量產，2027 年主要成長引擎</td></tr>
+<tr><td class="num">200G</td><td>1.6T（8 通道）</td><td>3 奈米</td><td>送樣、小批量，嚴重缺貨</td><td>只有 SerDes IP，無產品</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>3. 核心內容：DSP 做什麼、達發做到哪</h2>
+
+<h3>DSP 的四個核心工作</h3>
+<ul>
+<li><b>時脈與資料回復（CDR / retiming）</b>：從失真的訊號裡重新抓出時脈，把每個符號在正確時間點取樣。這就是「retimed optics」裡 retimed 的意思。</li>
+<li><b>等化（equalization）</b>：用 FFE、DFE 等數位濾波器補償光纖、連接器、PCB 走線造成的高頻衰減，把閉起來的眼重新撐開。</li>
+<li><b>前向錯誤更正（FEC）</b>：加入冗餘位元，讓接收端能自行修正一定比例的錯誤，把誤碼率壓到可用水準。</li>
+<li><b>速率轉換（gearbox）</b>：主機端和光端的通道數或速率不同時負責轉換，例如把 8 路電訊號對應到 4 路光訊號。</li>
+</ul>
+<p>DSP 本質上是「兩組高速 SerDes 夾著一顆訊號處理引擎」：一邊面向交換晶片，一邊面向光學元件。所以 SerDes IP 的等級，基本上決定了一家公司能做到哪一代 DSP。這也是達發在法說會上一直強調「200G SerDes IP 已就緒」的原因：那是做 1.6T DSP 的入場券，但還不是產品本身。</p>
+
+<h3>達發的產品時間軸</h3>
+<ol class="timeline">
+<li class="done"><b>2024 年以前</b><span>單通道 50G PAM4 DSP 出貨，支援最高 400G，並搭配自家 TIA 出貨。</span></li>
+<li class="done"><b>2025 年第四季</b><span>單通道 100G DSP 完成 tape-out，提供 4 通道（400G）與 8 通道（800G）兩種版本。</span></li>
+<li class="done"><b>2026 年上半年</b><span>50G 產品放量，打進全球前十大模組廠；800G 方案通過指標客戶的低功耗要求。</span></li>
+<li class="done"><b>2026 年中至下半年</b><span>100G DSP 陸續量產，同步推出 100G 世代 TIA；另一家北美大型 CSP 的 50G 專案下半年出貨。</span></li>
+<li><b>2026 年下半年（待觀察）</b><span>公司原定公布 200G（1.6T）產品藍圖與時程，8 月法說只說 IP 到位、將用先進製程壓低功耗，尚未給出量產時間。</span></li>
+<li><b>2027 年</b><span>100G 產品全面貢獻，公司指引光通訊營收較 2026 年再成長逾 3 倍。</span></li>
+</ol>
+
+<h3>達發的差異化打法</h3>
+<p><b>DSP 與 TIA 綁售。</b>達發除了 DSP，也做接收端的 TIA，並在法說會表示 100G 世代的 TIA 搭載率會比上一代更高，長期目標是全面提供整合 TIA 的方案。對模組廠來說，同一家供應商的 DSP 與 TIA 已經預先調校好，驗證比較省事；對達發來說，每顆模組能拿到的晶片價值變高。</p>
+<p><b>主打低功耗。</b>公司多次強調 800G DSP 達到客戶的低功耗高標準。這是合理的切入點，因為 DSP 吃掉模組大約一半的電，功耗每降一點，客戶在高密度交換器上的散熱壓力就小一點。</p>
+<p><b>單價翻倍。</b>市場資料指出單通道 100G DSP 單價約是 50G 的兩倍，所以即使出貨顆數成長溫和，世代切換本身就能讓營收跳一階。</p>
+<p><b>集團資源。</b>達發是聯發科集團旗下公司，高速 SerDes 技術可以借助母公司的研發積累。這是它和其他中小型 DSP 挑戰者最大的不同，但公開資料對兩者之間具體的 IP 分工著墨不多。</p>
+
+<h2>4. 產業格局與達發的位置</h2>
+
+<h3>市場結構：接近雙寡占</h3>
+<p>多份產業分析把高速 PAM4 DSP 形容為 Marvell 與 Broadcom 的雙寡占，Marvell 在 800G DSP 的市佔約七到八成，並且率先量產 3 奈米的 1.6T DSP（Ara）。Credo 是最常被提到的挑戰者，其他還有 MaxLinear、MACOM、Semtech，以及中國的 Sitrus、Joywell 等正在開發 800G DSP 的新廠商。達發是已量產出貨的供應商之一，在部分市場報告中被列為份額較小的廠商。</p>
+
+<h3>為什麼大廠這麼難被撼動</h3>
+<p>一顆 DSP 要被採用，必須由模組廠和終端 CSP 一起測試，單一驗證週期可長達約兩年。模組一旦用了某家 DSP 開發，換供應商等於整顆模組重新驗證，所以客戶傾向延續既有夥伴。業界專家也指出，部分二線廠商雖然技術上做得出 800G DSP，但缺乏客戶生態，很難真正打進去。</p>
+<p>反過來看，這也解釋了達發為什麼現在才爆發：它 2023 到 2024 年開始的驗證，現在才走完兩年週期、轉成量產訂單。而一旦進入，同樣的轉換成本也會保護它的份額。</p>
+
+<h3>DSP 缺貨與漲價</h3>
+<p>股癌在 EP699 指出，交換器速率越高越需要 DSP 才能維持訊號：400G 已經常見，800G 是標配，1.6T 基本上是必須，除非走 LPO 或 CPO。目前正處於 400G 到 800G 的過渡期，DSP 非常缺貨；市場等了很久的漲價終於出現，美國主要 DSP 廠傳出漲價 15–20%，密切合作的大客戶可能漲得少，其他客戶都會漲。他點名後續要看 Marvell、MaxLinear 怎麼說，也提到台系有廠商在做 DSP，也就是達發。</p>
+<div class="note"><strong>來源狀態：</strong>漲價幅度與廠商名稱出自 Podcast 口述，節目逐字稿本身也把「漲價的主要廠商名」列為待確認，目前找不到獨立的公開來源。野村同期的專家紀錄對 800G 的看法不同（見下表），兩者可能講的是不同價格：野村指出現貨零售價比長約價高 10–20%，與漲價幅度相近，所以漲價可能主要反映在沒有長約的客戶身上。另一方面，FundaAI 整理本季產業會議的結論是光通訊供給吃緊、價格上漲，MaxLinear 的交期也長達 26–28 週，這些都支持缺貨的前提。</div>
+
+<h3>800G 與 1.6T 的量與價</h3>
+<p>以下出貨與價格數字引自野村 2026 年 9 月下旬的專家會議紀錄，供需一欄保留野村原本的判斷作為對照：</p>
+<div class="scroll">
+<table>
+<thead><tr><th></th><th>800G DSP</th><th>1.6T DSP</th></tr></thead>
+<tbody>
+<tr><td>製程</td><td>7 / 5 奈米</td><td>3 奈米</td></tr>
+<tr><td>2025 年出貨</td><td class="num">約 2,500–2,600 萬顆</td><td>起步</td></tr>
+<tr><td>2026 年</td><td class="num">接近 5,000 萬顆</td><td>需求逾 2,000 萬顆，出貨約 1,600–1,700 萬顆</td></tr>
+<tr><td>2027 年</td><td class="num">1.2–1.5 億顆</td><td>需求 6,000–7,000 萬顆，供給約 4,000 萬顆</td></tr>
+<tr><td>長約價格</td><td class="num">45–70 美元</td><td class="num">120–150 美元</td></tr>
+<tr><td>供需（野村判斷）</td><td>充裕，明年合約價預計降約一成（與股癌說法不同）</td><td>缺口延續至 2027 年下半年</td></tr>
+</tbody>
+</table>
+</div>
+<p>對達發的含義：如果 800G DSP 缺貨、大廠對非核心客戶漲價，被漲價的中小型模組廠最有動機去驗證替代供應商（second source）。達發主打低功耗和價格，100G 產品又剛好在這個時間點量產，是最直接的受惠者之一。漲價也會抬高整個 800G DSP 的價格帶，讓達發不必殺價就有競爭力。限制在於驗證週期長達約兩年，缺貨紅利只能落在已經完成驗證的客戶上，短期內較難擴散到新客戶。1.6T 的缺口則因為達發還沒有產品，暫時吃不到。</p>
+
+<h3>把達發放進市場裡比一比</h3>
+<div class="est">
+<p><b>以下是我的粗估，不是公司或券商數字。</b></p>
+<p>達發 2026 年上半年營收約 117.5 億元（第二季 62.9 億元，季增 15.3%，回推第一季約 54.6 億元）。假設 2027 年全年營收約 300 億元，光通訊佔「雙位數」取 10–15%，光通訊營收約 30–45 億元，約合 0.9–1.4 億美元。用公司的倍數往回推，2026 年約 10–15 億元，2025 年約 2.5–4 億元，大約只佔 2025 年總營收的 1% 多一點。</p>
+<p>再對照 2027 年 800G DSP 約 1.2–1.5 億顆、單價約 50 美元上下，光 800G 這一塊市場就約 60–75 億美元。達發即使達標，市佔大約落在 1.5–2% 的量級。</p>
+<p>這不是看空的論點，而是定位：達發是已經在出貨、但份額還很小的替代 DSP 供應商，光通訊營收從極小基數往上爬，成長倍數很驚人，但絕對規模和 Marvell 不在同一個量級。</p>
+</div>
+
+<h3>台美股 DSP 同業</h3>
+<p>全球能量產 400G 以上高端 PAM4 DSP 的廠商只有少數幾家。按角色可以分成三層：</p>
+<div class="scroll">
+<table>
+<thead><tr><th>公司</th><th>角色</th><th>最新進度</th><th>DSP 在公司的份量</th></tr></thead>
+<tbody>
+<tr><td>Marvell（MRVL）</td><td>龍頭，市佔最高</td><td>800G 主力供應商，3 奈米 1.6T DSP 已量產；旭創、新易盛等模組廠都向它採購</td><td>重要但只是一部分，還有客製 ASIC 等業務</td></tr>
+<tr><td>Broadcom（AVGO）</td><td>第二大</td><td>與 Marvell 合計佔高端市場 85–90%</td><td>佔比很小，主業是交換晶片、ASIC、軟體</td></tr>
+<tr class="hl"><td>MaxLinear（MXL）</td><td>挑戰者</td><td>5 奈米 800G DSP Keystone 在美國與亞洲多家 CSP 量產；1.6T 的 Rushmore 預計 2027 年中開始放量、2028 年全面量產</td><td>光通訊已是最大成長引擎，基礎建設佔營收過半</td></tr>
+<tr><td>Credo（CRDO）</td><td>挑戰者</td><td>DSP 產品線涵蓋單通道 50G 至 200G，3 奈米 1.6T DSP Bluebird 已推出；開創拿掉接收端 DSP 的 LRO 架構</td><td>主力是 AEC 主動電纜，光 DSP 為第二條線</td></tr>
+<tr class="hl"><td>達發（6526）</td><td>挑戰者</td><td>單通道 50G 量產、100G 2026 年中量產，200G 只有 IP</td><td>光通訊佔營收約個位數低段，2027 年才達雙位數</td></tr>
+<tr><td>瑞昱（2379）</td><td>潛在進入者</td><td>100G Optical PHY 已下線送樣，計劃跨進 112G PAM4 DSP</td><td>尚未貢獻</td></tr>
+<tr><td>宏觀（6568）</td><td>周邊</td><td>做光通訊類比晶片（TIA、Driver），不是 DSP 的直接競爭者</td><td>不適用</td></tr>
+</tbody>
+</table>
+</div>
+<p>瑞昱值得留意：它和聯發科集團、宏觀並列為跨入光傳輸的台灣 IC 設計公司，目前還在較低速的產品，但如果真的做到 112G DSP，會和達發在台灣模組廠與陸系模組廠的客戶群正面相遇。</p>
+
+<h3>用 MaxLinear 當尺規</h3>
+<p>MaxLinear 是最適合拿來對照達發的公司：兩者都是在 Marvell、Broadcom 之外搶份額的挑戰者，也都走 DSP 搭配 TIA 的路線。</p>
+<div class="scroll">
+<table>
+<thead><tr><th></th><th>MaxLinear</th><th>達發</th></tr></thead>
+<tbody>
+<tr><td>800G / 100G 世代</td><td>2025 年起在多家 CSP 放量</td><td>2026 年中開始量產</td></tr>
+<tr><td>2026 年光通訊營收</td><td class="num">約 2.2 億美元（公司指引，年初為 1 億多）</td><td class="num">約 0.3–0.45 億美元（本報告粗估）</td></tr>
+<tr><td>目前市佔</td><td class="num">約 5–7%</td><td class="num">約 1–2%（粗估）</td></tr>
+<tr><td>市佔目標</td><td>兩三年內 20–25%</td><td>未公布</td></tr>
+<tr><td>1.6T 世代</td><td>Rushmore 客戶驗證中，2027 年中放量</td><td>只有 200G SerDes IP，產品藍圖待公布</td></tr>
+<tr><td>搭配 TIA</td><td>Washington TIA，1.6T 每模組晶片價值可破 100 美元</td><td>100G 世代 TIA 搭載率提高</td></tr>
+</tbody>
+</table>
+</div>
+<p>兩個觀察：第一，達發的光通訊規模大約只有 MaxLinear 的五分之一到七分之一，而 MaxLinear 自己的市佔也才個位數。第二，達發大約落後 MaxLinear 一個世代節奏：MaxLinear 已經在做 1.6T 客戶驗證時，達發的 100G 才剛量產。MaxLinear 的營收與指引上修軌跡，可以當成達發未來一到兩年的參考路徑，但規模要打折。</p>
+
+<h2>5. 重要限制與注意事項</h2>
+
+<h3>技術路線風險：DSP 可能被拿掉</h3>
+<p>為了省電，業界正在發展幾條「少用或不用 DSP」的路線：</p>
+<ul>
+<li><b>LPO（線性驅動可插拔光學）</b>：模組內完全拿掉 DSP，訊號修正交給交換晶片的 SerDes。省電、便宜，但傳輸距離短、誤碼率較高，而且要求交換晶片支援。</li>
+<li><b>LRO（線性接收光學）</b>：只拿掉接收端 DSP，保留發射端，被視為過渡方案。</li>
+<li><b>NPO / CPO（近封裝 / 共同封裝光學）</b>：把光學引擎搬到交換晶片旁邊或同一個封裝內，距離短到根本不需要 DSP。Meta 的數據顯示 CPO 每 800G 頻寬的功耗比可插拔模組少約 65%。</li>
+</ul>
+<p>股癌的看法是，全面走到 CPO、市佔很高是幾年後的事；而且 DSP 廠可能把功能做成 chiplet，繼續靠 SerDes IP 賺錢，只是形態和過去不同。被宣告要死的東西，通常會先持續放量一段時間，老玩家也可能轉身搭上新架構。這對手上已有 200G SerDes IP 的達發是有利的解讀。</p>
+<p>目前的共識是這些路線會慢慢侵蝕 DSP 的可服務市場，但速度不快。NVIDIA 的 CPO 交換器到 2026 年底仍屬早期小規模導入；中國廠商預估 NPO 2027 年才量產。達發自己的說法是市調機構預估可插拔模組到 2030 年仍強勁成長。</p>
+<div class="note"><strong>值得注意的對沖：</strong>在 LPO / NPO / CPO 路線下，DSP 被移除後，等化與失真修正有一部分會轉給 TIA 與 Driver，對它們的線性度要求大幅提高，這類晶片的價值反而上升。達發同時做 DSP 和 TIA，等於在兩條路線上都有位置。不過 TIA 可用 28 奈米成熟製程生產，中國廠商已量產 100G、200G 在送樣，這一塊的價格競爭會比 DSP 激烈。</div>
+
+<h3>200G 世代的落後</h3>
+<p>公司的說法是 800G 到 2028 年仍是主流，1.6T 會「逐步」放量。這對達發有利，但需要獨立驗證：野村的數字顯示 2027 年 1.6T DSP 需求已達 6,000–7,000 萬顆，約是 800G 的一半。如果 1.6T 滲透比公司預期快，達發在最高價值的世代會晚一到兩年進場，而屆時 Marvell 與 Broadcom 已完成客戶驗證。</p>
+
+<h3>市場報告的數字互相矛盾</h3>
+<p>搜尋到的 PAM4 DSP 市場規模從「2033 年約 25 億美元」到「2025 年已 48 億美元」都有，排名也不一致（有報告說 Broadcom 第一，多數說 Marvell 第一）。這類付費市調摘要品質參差，本報告的市場判斷以野村專家紀錄、公司法說與 SemiAnalysis 等較具體的來源為主，市調摘要只作為廠商名單參考。</p>
+
+<h3>資訊來源偏向公司說法</h3>
+<p>達發的產品進度、客戶數與功耗表現幾乎都來自公司法說會。「全球前十大模組廠」「北美大型 CSP」沒有具名，無法獨立確認是哪幾家、佔多少量。</p>
+
+<h2>6. 延伸學習方向</h2>
+<h3>接下來值得追的觀察指標</h3>
+<ul>
+<li><b>2026 年第三季法說會</b>：光通訊「逾 4 倍」的指引有沒有再上修，以及北美 CSP 專案是否如期出貨。</li>
+<li><b>200G 產品藍圖</b>：公司原訂下半年公布，時程與製程選擇（是否 3 奈米）會決定它在 1.6T 世代晚多久。</li>
+<li><b>100G TIA 搭載率</b>：綁售策略是否奏效，直接影響每顆模組的晶片價值。</li>
+<li><b>DSP 漲價是否落地</b>：Marvell、MaxLinear 下一次法說對 800G 定價的說法，以及達發是否跟進調價或在法說提到轉單。這是驗證本報告缺貨前提的關鍵。</li>
+<li><b>LPO / NPO 在 CSP 的實際採用比例</b>：這是 DSP 長期市場大小的上限。</li>
+</ul>
+<h3>可以接著研究的主題</h3>
+<ul>
+<li>SerDes 原理：為什麼 112G 到 224G 這麼難，這是理解所有高速介面晶片的基礎。</li>
+<li>FEC 與誤碼率：為什麼 LPO 誤碼率較高，以及交換晶片要多做什麼才能支撐 LPO。</li>
+<li>Marvell Ara 與 Broadcom Sian3 的規格對照，看 3 奈米 1.6T DSP 的功耗門檻在哪裡。</li>
+<li>TIA / Driver 產業：誰在做、中國廠商追趕速度，以及 CPO 世代的價值轉移。</li>
+<li>Credo 的商業模式：同樣是挑戰者，它選擇從 AEC 主動電纜切入，可作為達發的對照組。</li>
+</ul>
+
+<h2>7. 來源列表</h2>
+<ol class="sources">
+<li><a href="https://news.cnyes.com/news/id/6558862">鉅亨網：達發光通訊業務大爆發 估今年營收翻4倍、明年再翻3倍（2026/08/04）</a></li>
+<li><a href="https://www.ctee.com.tw/news/20260805700277-430502">工商時報：光通訊高速成長 達發後市俏（2026/08/05）</a></li>
+<li><a href="https://udn.com/news/story/7252/9670984">聯合新聞網：達發科技AI布局進入收割期 光通訊營收今年拚增逾四倍（2026/08/04）</a></li>
+<li><a href="https://tw.stock.yahoo.com/news/%E9%81%94%E7%99%BC%E7%9C%8B%E5%A5%BD%E5%85%89%E9%80%9A%E8%A8%8A%E8%B7%B3%E8%BA%8D%E5%BC%8F%E6%88%90%E9%95%B7-%E7%87%9F%E6%94%B6%E4%BC%B0%E5%B9%B4%E5%A2%9E%E9%80%BE3%E5%80%8D-015400195.html">MoneyDJ：達發看好光通訊跳躍式成長，營收估年增逾3倍（2026/05/06）</a></li>
+<li><a href="https://tw.stock.yahoo.com/news/%E9%81%94%E7%99%BC100g-dsp%E5%8F%8Atia%E5%90%8C%E6%AD%A5%E6%8E%A8%E9%80%B2-%E5%85%89%E9%80%9A%E8%A8%8A%E7%87%9F%E6%94%B6%E5%80%8D%E9%80%9F%E5%A2%9E-022100163.html">MoneyDJ：達發100G DSP及TIA同步推進，光通訊營收倍速增（2026/03/02）</a></li>
+<li><a href="https://news.cnyes.com/news/id/6472789">鉅亨網：達發搶AI傳輸商機 800G DSP完成流片（2026/05/29）</a></li>
+<li><a href="https://money.udn.com/money/story/5739/9584371">經濟日報：達發 瞄準逾120天（2026/06/23）</a></li>
+<li>股癌 Podcast EP699（2026/09/23），依節目逐字稿整理</li>
+<li><a href="https://vocus.cc/article/6ab48e66fd89780001b6d14d">Realpha：聽《股癌》EP699：被宣告要死的東西，通常活得比你想的久（2026/09/24）</a></li>
+<li><a href="https://convergedigest.com/maxlinear-1-6t-rushmore-ai-optical-share/">Converge Digest：Citi: MaxLinear Sees 1.6T as Inflection Point（2026/09）</a></li>
+<li><a href="https://fundaai.substack.com/p/researchoptics-conference-season">FundaAI：Optics: Conference Season Takeaways – Supply Tightness with Rising Prices（2026/09）</a></li>
+<li><a href="https://www.fool.com/earnings/call-transcripts/2026/04/23/maxlinear-mxl-q1-2026-earnings-transcript/">MaxLinear Q1 2026 法說逐字稿（2026/04/23）</a></li>
+<li><a href="https://www.sec.gov/Archives/edgar/data/0001807794/000162828026043303/crdo-20260502.htm">Credo FY2026 10-K</a></li>
+<li><a href="https://caifuhao.eastmoney.com/news/20260604052554117423580">東方財富：兩種高速光模組 DSP 晶片，國產自給率不足 10%（2026/06）</a></li>
+<li><a href="https://www.businesstoday.com.tw/article/category/183015/post/202606040010/">今周刊：瑞昱打入輝達供應鏈，光通訊與 SSD 控制晶片卡位（2026/06）</a></li>
+<li><a href="https://news.cnyes.com/news/id/6614058">鉅亨網：專家：1.6T光模組供應為主要瓶頸 供需缺口至少持續至2027下半年（2026/09/24）</a></li>
+<li><a href="https://bepresearch.substack.com/p/the-quiet-architect">Ben Pouladian：AI Optical Interconnect Landscape 2026（2026/03）</a></li>
+<li><a href="https://iamfabian.substack.com/p/my-pre-earnings-deep-dive-marvell">Marvell Technology: The 1.6T Transition and the DSP Battlefield（2026/03）</a></li>
+<li><a href="https://fomosoc.substack.com/p/asicnvdamarvell-38broadcommarvell">深入分析第38期：Broadcom + Marvell（2026/03）</a></li>
+<li><a href="http://wangofnextdoor.blogspot.com/2024/12/800.html">CSP 側 800G+ 光模組市場全解析（2024/12）</a></li>
+<li><a href="https://newsletter.semianalysis.com/p/co-packaged-optics-cpo-book-scaling">SemiAnalysis：Co-Packaged Optics (CPO) – Scaling with Light（2026/04）</a></li>
+<li><a href="https://eps.ieee.org/wp-content/uploads/2026/03/Linear-Pluggable-Optics_V2-UPDATED.pdf">IEEE EPS：Linear Pluggable Optics – An Overview（2026/03）</a></li>
+<li><a href="https://cloudswit.ch/blogs/1-6t-switch-choose-between-cpo-npo-and-lpo/">Asterfusion：1.6T Switch Era: Choosing Between CPO, NPO, and LPO（2026/06）</a></li>
+<li><a href="https://www.qsfptek.com/qt-news/lpo-vs-cpo-next-generation-of-data-center-optical-interconnect.html">QSFPTEK：LPO vs. CPO</a></li>
+<li><a href="https://www.marketreportanalytics.com/reports/pam4-dsp-ics-381739">Market Report Analytics：PAM4 DSP ICs（市調摘要，僅供廠商名單參考）</a></li>
+<li><a href="https://dataintelo.com/report/pam4-dsp-chip-market">Dataintelo：PAM4 DSP Chip Market（市調摘要，數字與其他來源矛盾）</a></li>
+</ol>
+
+<p class="disclaimer">這是資訊整理，不是投資建議。文中標示為「粗估」的數字為作者依公開資料推算，假設條件已寫明，實際數字以公司財報為準。</p>
+</main>
+
+<script>
+(function(){
+  var svg=document.getElementById('eye'); if(!svg) return;
+  var NS='http://www.w3.org/2000/svg';
+  var levels=[28,70,112,154], W=400, UI=200, x0=0;
+  var seed=7; function rnd(){seed=(seed*9301+49297)%233280;return seed/233280;}
+  // guide lines for the 4 levels
+  levels.forEach(function(y){
+    var l=document.createElementNS(NS,'line');
+    l.setAttribute('x1',0);l.setAttribute('x2',W);l.setAttribute('y1',y);l.setAttribute('y2',y);
+    l.setAttribute('stroke','var(--rule)');l.setAttribute('stroke-width','1');l.setAttribute('stroke-dasharray','2 5');
+    svg.appendChild(l);
+  });
+  var g=document.createElementNS(NS,'g');
+  g.setAttribute('fill','none');g.setAttribute('stroke','var(--signal)');g.setAttribute('stroke-width','1.1');g.setAttribute('stroke-opacity','.28');
+  // transitions centred at x=0, 200, 400 across one UI each side
+  for(var k=0;k<3;k++){
+    var cx=k*UI;
+    for(var a=0;a<4;a++){for(var b=0;b<4;b++){
+      for(var r=0;r<3;r++){
+        var j1=(rnd()-.5)*7, j2=(rnd()-.5)*7, jt=(rnd()-.5)*14;
+        var ya=levels[a]+j1, yb=levels[b]+j2;
+        var sx=cx-UI/2, ex=cx+UI/2, m=cx+jt;
+        var d='M'+sx+','+ya+' C'+(m-30)+','+ya+' '+(m+30)+','+yb+' '+ex+','+yb;
+        var p=document.createElementNS(NS,'path');p.setAttribute('d',d);g.appendChild(p);
+      }
+    }}
+  }
+  svg.appendChild(g);
+})();
+</script>
+</body>
+</html>
